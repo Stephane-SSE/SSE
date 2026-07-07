@@ -211,38 +211,6 @@
   .admin-msg{ font-size:12.5px; color:var(--muted); }
   .admin-msg.ok{ color:#2E7D32; }
   .admin-msg.err{ color:var(--red); }
-  .admin-lock-label{
-    font-size:12.5px;
-    color:var(--muted);
-    width:100%;
-  }
-  .admin-lock-row{
-    display:flex;
-    gap:8px;
-    align-items:center;
-    flex-wrap:wrap;
-  }
-  #admin-pass{
-    padding:9px 10px;
-    font-size:15px;
-    border:1.5px solid var(--line);
-    border-radius:8px;
-    background:#FCFCFB;
-    color:var(--ink);
-    width:160px;
-  }
-  #admin-pass:focus{ outline:none; border-color:var(--teal); background:#fff; }
-  .btn-lock{
-    background:transparent;
-    border:1px solid var(--muted);
-    color:var(--muted);
-    font-weight:700;
-    font-size:12.5px;
-    padding:8px 12px;
-    border-radius:8px;
-    cursor:pointer;
-  }
-  .btn-lock:hover{ background:#eee; }
 
   .results{ margin-top:18px; }
 
@@ -476,25 +444,13 @@
 
     <details class="admin-zone">
       <summary>Mise à jour des données (import Liste_PSM.xlsx)</summary>
-
-      <div class="admin-body" id="admin-locked">
-        <label for="admin-pass" class="admin-lock-label">Accès protégé — saisissez le mot de passe :</label>
-        <div class="admin-lock-row">
-          <input type="password" id="admin-pass" placeholder="Mot de passe" autocomplete="off" inputmode="numeric">
-          <button class="btn-secondary" id="btn-unlock" type="button">Déverrouiller</button>
-        </div>
-        <span class="admin-msg" id="lock-msg"></span>
-      </div>
-
-      <div class="admin-body" id="admin-unlocked" style="display:none;">
+      <div class="admin-body">
         <button class="btn-secondary" id="btn-import" type="button">Charger un fichier Liste_PSM.xlsx</button>
         <input type="file" id="file-import" accept=".xlsx">
-        <button class="btn-lock" id="btn-lock" type="button">Verrouiller</button>
         <span class="admin-msg" id="import-msg">Remplace les données pour tout le monde (quantités remises au niveau du fichier importé).</span>
       </div>
     </details>
   </section>
-
 
   <section class="results" id="results">
     <div class="loading"><span class="spinner"></span>Connexion à la base partagée…</div>
@@ -521,18 +477,6 @@ const FIREBASE_CONFIG = {
 
 const DATA_URL = './psm.json'; // utilisé uniquement pour amorcer la base la 1ère fois
 
-/* ==========================================================================
-   MOT DE PASSE pour la mise à jour des données (import xlsx).
-   Pour le changer, modifiez la valeur ci-dessous.
-   NB : ce contrôle empêche les manipulations accidentelles et l'usage
-   par le tout-venant. Comme il s'exécute dans le navigateur, il n'est pas
-   inviolable (un utilisateur technique pourrait le contourner en lisant le
-   code source). Pour une vraie sécurité, il faudrait activer Firebase
-   Authentication + des règles de base restreignant l'écriture.
-   ========================================================================== */
-const ADMIN_PASSWORD = "01507336";
-let adminUnlocked = false;
-
 let PRODUITS = {};      // { id: {ref, contenant, quantite, libelle, produit_ref} }
 let INDEXED = [];        // tableau à plat pour la recherche
 let dbReady = false;
@@ -548,12 +492,6 @@ const elStatusTxt = document.getElementById('status-text');
 const elBtnImport = document.getElementById('btn-import');
 const elFileImport = document.getElementById('file-import');
 const elImportMsg  = document.getElementById('import-msg');
-const elAdminLocked   = document.getElementById('admin-locked');
-const elAdminUnlocked = document.getElementById('admin-unlocked');
-const elAdminPass = document.getElementById('admin-pass');
-const elBtnUnlock = document.getElementById('btn-unlock');
-const elBtnLock   = document.getElementById('btn-lock');
-const elLockMsg   = document.getElementById('lock-msg');
 
 function normalize(s){
   return (s||'')
@@ -911,48 +849,12 @@ elResults.addEventListener('click', (ev)=>{
   });
 });
 
-// --- Contrôle d'accès (mot de passe) pour la mise à jour des données ---
-function tryUnlock(){
-  const val = (elAdminPass.value || '').trim();
-  if(val === ADMIN_PASSWORD){
-    adminUnlocked = true;
-    elAdminPass.value = '';
-    elLockMsg.className = 'admin-msg';
-    elLockMsg.textContent = '';
-    elAdminLocked.style.display = 'none';
-    elAdminUnlocked.style.display = 'flex';
-  }else{
-    elLockMsg.className = 'admin-msg err';
-    elLockMsg.textContent = 'Mot de passe incorrect.';
-    elAdminPass.value = '';
-    elAdminPass.focus();
-  }
-}
-elBtnUnlock.addEventListener('click', tryUnlock);
-elAdminPass.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') tryUnlock(); });
-
-elBtnLock.addEventListener('click', ()=>{
-  adminUnlocked = false;
-  elAdminUnlocked.style.display = 'none';
-  elAdminLocked.style.display = 'flex';
-  elImportMsg.className = 'admin-msg';
-  elImportMsg.textContent = 'Remplace les données pour tout le monde (quantités remises au niveau du fichier importé).';
-});
-
 // --- Import d'un nouveau fichier Liste_PSM.xlsx (remplace les données pour tous) ---
-elBtnImport.addEventListener('click', ()=>{
-  if(!adminUnlocked) return;
-  elFileImport.click();
-});
+elBtnImport.addEventListener('click', ()=> elFileImport.click());
 
 elFileImport.addEventListener('change', (ev)=>{
   const file = ev.target.files[0];
   if(!file) return;
-
-  if(!adminUnlocked){
-    elFileImport.value = '';
-    return;
-  }
 
   if(!dbReady){
     elImportMsg.className = 'admin-msg err';
