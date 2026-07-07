@@ -213,6 +213,58 @@
   .admin-msg.err{ color:var(--red); }
 
   .results{ margin-top:18px; }
+  .produit-card{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-left:5px solid var(--navy);
+    border-radius:8px;
+    padding:14px 16px;
+    margin-bottom:12px;
+  }
+  .produit-libelle{
+    font-family:'Arial Narrow', 'Helvetica Neue Condensed', Arial, sans-serif;
+    font-weight:800;
+    font-size:18px;
+    color:var(--navy);
+    letter-spacing:0.01em;
+    line-height:1.2;
+  }
+  .produit-ref{
+    color:var(--muted);
+    font-size:13px;
+    margin-top:3px;
+  }
+  .produit-refcat{
+    font-family:'Courier New', monospace;
+    font-size:11.5px;
+    color:var(--teal);
+    margin-top:4px;
+  }
+  .contenants-label{
+    margin-top:12px;
+    font-size:11px;
+    font-weight:700;
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    color:var(--teal);
+  }
+  .contenant-line{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:8px;
+    flex-wrap:wrap;
+  }
+  .contenant-chip{
+    background:var(--teal-light);
+    color:var(--navy);
+    font-family:'Arial Narrow', 'Helvetica Neue Condensed', Arial, sans-serif;
+    font-weight:800;
+    font-size:16px;
+    letter-spacing:0.02em;
+    padding:2px 10px;
+    border-radius:6px;
+  }
   .contenant-card{
     background:var(--card);
     border:1px solid var(--line);
@@ -351,7 +403,7 @@
   <section class="searchcard">
     <div class="field">
       <label for="q-libelle">Libellé catalogue</label>
-      <input type="text" id="q-libelle" placeholder="ex. atropine, seringue, compresse…" autocomplete="off" inputmode="search" disabled>
+      <input type="text" id="q-libelle" placeholder="ex. atropine · salem 18 · salem*18" autocomplete="off" inputmode="search" disabled>
     </div>
     <div class="field">
       <label for="q-produit">Produit référentiel</label>
@@ -426,16 +478,50 @@ function escapeHtml(s){
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+// Découpe une saisie en "mots" : l'espace ET l'astérisque servent de
+// caractère générique (ex. "SALEM*18" ou "SALEM 18" -> ["salem","18"]).
+function tokenize(term){
+  return normalize(term).split(/[\s*]+/).filter(Boolean);
+}
+
+// Vrai si tous les mots apparaissent dans le texte, DANS L'ORDRE
+// (chacun après le précédent), avec n'importe quoi entre eux.
+function matchTokens(fieldNorm, term){
+  const tokens = tokenize(term);
+  if(tokens.length === 0) return true;
+  let pos = 0;
+  for(const t of tokens){
+    const idx = fieldNorm.indexOf(t, pos);
+    if(idx === -1) return false;
+    pos = idx + t.length;
+  }
+  return true;
+}
+
+// Surligne chaque mot de la recherche dans le texte, dans l'ordre.
 function highlight(text, term){
-  if(!term) return escapeHtml(text);
+  const tokens = tokenize(term);
+  if(tokens.length === 0) return escapeHtml(text);
   const n = normalize(text);
-  const t = normalize(term);
-  const idx = n.indexOf(t);
-  if(idx === -1) return escapeHtml(text);
-  const before = text.slice(0, idx);
-  const match = text.slice(idx, idx + term.length);
-  const after = text.slice(idx + term.length);
-  return escapeHtml(before) + '<mark>' + escapeHtml(match) + '</mark>' + escapeHtml(after);
+  const ranges = [];
+  let pos = 0;
+  for(const t of tokens){
+    const idx = n.indexOf(t, pos);
+    if(idx === -1) continue;
+    ranges.push([idx, t.length]);
+    pos = idx + t.length;
+  }
+  if(ranges.length === 0) return escapeHtml(text);
+  let out = '';
+  let cursor = 0;
+  for(const [start, len] of ranges){
+    if(start < cursor) continue;
+    out += escapeHtml(text.slice(cursor, start));
+    out += '<mark>' + escapeHtml(text.slice(start, start + len)) + '</mark>';
+    cursor = start + len;
+  }
+  out += escapeHtml(text.slice(cursor));
+  return out;
 }
 
 function rebuildIndex(){
@@ -461,14 +547,14 @@ function runSearch(){
   const nP = normalize(qP);
 
   if(!qL && !qP){
-    elResults.innerHTML = '<div class="hint">Saisissez un ou plusieurs mots dans l\'un des deux champs pour lancer la recherche.</div>';
+    elResults.innerHTML = '<div class="hint">Saisissez un ou plusieurs mots dans l\'un des deux champs pour lancer la recherche.<br><span style="font-size:12.5px;">Astuce : l\'espace ou <b>*</b> agit comme joker — ex. <i>SALEM 18</i> ou <i>SALEM*18</i>.</span></div>';
     elCount.innerHTML = '';
     return;
   }
 
   const matches = INDEXED.filter(r=>{
-    const okL = nL ? r._libelle_n.includes(nL) : true;
-    const okP = nP ? r._produit_n.includes(nP) : true;
+    const okL = qL ? matchTokens(r._libelle_n, qL) : true;
+    const okP = qP ? matchTokens(r._produit_n, qP) : true;
     if(qL && qP) return okL && okP;
     if(qL) return okL;
     if(qP) return okP;
@@ -476,36 +562,53 @@ function runSearch(){
   });
 
   if(matches.length === 0){
-    elResults.innerHTML = '<div class="empty">Aucun produit trouvé.<br><b>Vérifiez l\'orthographe</b> ou essayez un terme plus court.</div>';
+    elResults.innerHTML = '<div class="empty">Aucun produit trouvé.<br><b>Vérifiez l\'orthographe</b> ou essayez un terme plus court.<br>' +
+      '<span style="font-size:12.5px;">Astuce : utilisez l\'espace ou <b>*</b> comme joker, ex. <i>SALEM 18</i> ou <i>SALEM*18</i>.</span></div>';
     elCount.innerHTML = '';
     return;
   }
 
-  const byContenant = {};
+  // Regroupement PAR PRODUIT : on identifie le produit, puis on liste
+  // les contenants qui le contiennent (avec leur quantité respective).
+  const byProduit = {};
   matches.forEach(r=>{
-    const key = r.contenant || '(sans contenant)';
-    if(!byContenant[key]) byContenant[key] = [];
-    byContenant[key].push(r);
+    // clé produit : référence catalogue si dispo, sinon libellé + produit référentiel
+    const key = r.ref ? ('ref:' + r.ref) : ('lib:' + r.libelle + '|' + r.produit_ref);
+    if(!byProduit[key]){
+      byProduit[key] = {
+        ref: r.ref,
+        libelle: r.libelle,
+        produit_ref: r.produit_ref,
+        contenants: []
+      };
+    }
+    byProduit[key].contenants.push(r);
   });
 
-  const contenants = Object.keys(byContenant).sort((a,b)=>a.localeCompare(b,'fr'));
+  const produits = Object.values(byProduit).sort((a,b)=>
+    a.libelle.localeCompare(b.libelle,'fr'));
 
-  elCount.innerHTML = '<b>' + contenants.length + '</b> contenant' + (contenants.length>1?'s':'') +
-    ' &middot; <b>' + matches.length + '</b> ligne' + (matches.length>1?'s':'') + ' produit';
+  const nbContenants = matches.length;
+  elCount.innerHTML = '<b>' + produits.length + '</b> produit' + (produits.length>1?'s':'') +
+    ' &middot; <b>' + nbContenants + '</b> emplacement' + (nbContenants>1?'s':'') + ' (contenant)';
 
   let html = '';
-  contenants.forEach(c=>{
-    const items = byContenant[c];
-    html += '<div class="contenant-card">';
-    html += '<div class="contenant-head"><span class="contenant-name">' + escapeHtml(c) + '</span>';
-    html += '<span class="tag-count">' + items.length + ' produit' + (items.length>1?'s':'') + '</span></div>';
+  produits.forEach(p=>{
+    // trier les contenants par nom
+    const conts = p.contenants.slice().sort((a,b)=>a.contenant.localeCompare(b.contenant,'fr'));
+    html += '<div class="produit-card">';
+    html += '<div class="produit-libelle">' + highlight(p.libelle, qL) + '</div>';
+    html += '<div class="produit-ref">' + highlight(p.produit_ref, qP) + '</div>';
+    if(p.ref){
+      html += '<div class="produit-refcat">Réf. catalogue : ' + escapeHtml(p.ref) + '</div>';
+    }
+    html += '<div class="contenants-label">Contenant' + (conts.length>1?'s':'') + ' (' + conts.length + ')</div>';
     html += '<ul class="items">';
-    items.forEach(it=>{
+    conts.forEach(it=>{
       const zeroClass = it.quantite <= 0 ? ' zero' : '';
       html += '<li data-id="' + it.id + '">';
-      html += '<div class="item-libelle">' + highlight(it.libelle, qL) + '</div>';
-      html += '<div class="item-ref">' + highlight(it.produit_ref, qP) + '</div>';
-      html += '<div class="item-qte' + zeroClass + '" data-qte-for="' + it.id + '">Quantité disponible : ' + it.quantite + '</div>';
+      html += '<div class="contenant-line"><span class="contenant-chip">' + escapeHtml(it.contenant) + '</span>';
+      html += '<span class="item-qte' + zeroClass + '" data-qte-for="' + it.id + '">Qté disponible : ' + it.quantite + '</span></div>';
       html += '<div class="prelevement-row">';
       html += '<label for="prel-' + it.id + '">Quantité prélevée</label>';
       html += '<input type="number" min="0" step="1" id="prel-' + it.id + '" placeholder="0">';
@@ -580,7 +683,7 @@ function initFirebase(){
     dbReady = true;
     setInputsEnabled(true);
     if(!elLibelle.value && !elProduit.value){
-      elResults.innerHTML = '<div class="hint">Saisissez un ou plusieurs mots dans l\'un des deux champs pour lancer la recherche.</div>';
+      elResults.innerHTML = '<div class="hint">Saisissez un ou plusieurs mots dans l\'un des deux champs pour lancer la recherche.<br><span style="font-size:12.5px;">Astuce : l\'espace ou <b>*</b> agit comme joker — ex. <i>SALEM 18</i> ou <i>SALEM*18</i>.</span></div>';
     } else {
       runSearch();
     }
