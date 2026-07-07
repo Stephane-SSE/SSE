@@ -4,6 +4,26 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Recherche Produits · PSM</title>
+
+<!--
+  ==========================================================================
+  CONFIGURATION FIREBASE - A FAIRE AVANT DEPLOIEMENT
+  ==========================================================================
+  1. Aller sur https://console.firebase.google.com et créer un projet gratuit.
+  2. Dans le projet : "Créer une base de données" > "Realtime Database"
+     (PAS Firestore). Démarrer en mode "test" (règles ouvertes), on
+     durcira les règles ensuite (voir instructions fournies séparément).
+  3. Dans les paramètres du projet > "Vos applications" > icône Web (</>),
+     enregistrer une appli. Copier l'objet de config fourni.
+  4. Remplacer l'objet FIREBASE_CONFIG ci-dessous (dans le <script> en bas
+     de ce fichier) par vos propres valeurs.
+  ==========================================================================
+-->
+
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-database-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
 <style>
   :root{
     --ink:#132A32;
@@ -11,6 +31,7 @@
     --teal:#0F5D63;
     --teal-light:#E7F1F0;
     --amber:#D98B3D;
+    --red:#B23B3B;
     --paper:#F6F5F1;
     --card:#FFFFFF;
     --line:#DDE3E1;
@@ -49,7 +70,18 @@
     font-size:11px;
     color:var(--amber);
     margin:0 0 6px;
+    display:flex;
+    align-items:center;
+    gap:8px;
   }
+  .status-dot{
+    width:8px; height:8px;
+    border-radius:50%;
+    background:#8a8a8a;
+    display:inline-block;
+  }
+  .status-dot.online{ background:#4CAF50; }
+  .status-dot.offline{ background:var(--red); }
   h1{
     font-family:'Arial Narrow', 'Helvetica Neue Condensed', Arial, sans-serif;
     font-weight:800;
@@ -62,7 +94,7 @@
     margin:6px 0 0;
     font-size:13.5px;
     color:#C9D6D3;
-    max-width:520px;
+    max-width:560px;
     position:relative;
     z-index:1;
   }
@@ -110,11 +142,19 @@
     border-color:var(--teal);
     background:#fff;
   }
+  .field input:disabled{
+    background:#EFEFEC;
+    color:var(--muted);
+  }
   .row-actions{
     display:flex;
     gap:10px;
     align-items:center;
     margin-top:4px;
+    flex-wrap:wrap;
+  }
+  button{
+    font-family:inherit;
   }
   button#raz{
     flex:0 0 auto;
@@ -128,19 +168,51 @@
     cursor:pointer;
     letter-spacing:0.02em;
   }
-  button#raz:active{
-    background:var(--navy);
-    color:#fff;
-  }
+  button#raz:active{ background:var(--navy); color:#fff; }
+  button#raz:disabled{ opacity:0.5; cursor:not-allowed; }
   .count-badge{
     font-size:12.5px;
     color:var(--muted);
   }
   .count-badge b{ color:var(--navy); }
 
-  .results{
-    margin-top:18px;
+  .admin-zone{
+    margin-top:14px;
+    padding-top:12px;
+    border-top:1px dashed var(--line);
   }
+  .admin-zone summary{
+    cursor:pointer;
+    font-size:12px;
+    color:var(--muted);
+    font-weight:700;
+    text-transform:uppercase;
+    letter-spacing:0.04em;
+  }
+  .admin-body{
+    margin-top:10px;
+    display:flex;
+    gap:10px;
+    align-items:center;
+    flex-wrap:wrap;
+  }
+  .btn-secondary{
+    background:var(--teal-light);
+    border:1px solid var(--teal);
+    color:var(--teal);
+    font-weight:700;
+    font-size:13px;
+    padding:9px 14px;
+    border-radius:8px;
+    cursor:pointer;
+  }
+  .btn-secondary:hover{ background:#d9ece9; }
+  input[type=file]{ display:none; }
+  .admin-msg{ font-size:12.5px; color:var(--muted); }
+  .admin-msg.ok{ color:#2E7D32; }
+  .admin-msg.err{ color:var(--red); }
+
+  .results{ margin-top:18px; }
   .contenant-card{
     background:var(--card);
     border:1px solid var(--line);
@@ -172,39 +244,64 @@
     border-radius:999px;
     white-space:nowrap;
   }
-  ul.items{
-    list-style:none;
-    margin:10px 0 0;
-    padding:0;
-  }
+  ul.items{ list-style:none; margin:10px 0 0; padding:0; }
   ul.items li{
-    padding:8px 0;
+    padding:10px 0;
     border-top:1px dashed var(--line);
     font-size:14px;
   }
   ul.items li:first-child{ border-top:none; }
-  .item-libelle{
-    font-weight:600;
-    color:var(--ink);
-  }
-  .item-ref{
-    color:var(--muted);
-    font-size:13px;
-    margin-top:2px;
-  }
+  .item-libelle{ font-weight:600; color:var(--ink); }
+  .item-ref{ color:var(--muted); font-size:13px; margin-top:2px; }
   .item-qte{
     display:inline-block;
-    margin-top:4px;
-    font-size:12px;
+    margin-top:6px;
+    font-size:13px;
     color:var(--amber);
     font-weight:700;
   }
-  mark{
-    background:#FBE3C4;
-    color:inherit;
-    padding:0 1px;
-    border-radius:2px;
+  .item-qte.zero{ color:var(--red); }
+
+  .prelevement-row{
+    display:flex;
+    gap:8px;
+    align-items:center;
+    margin-top:8px;
+    flex-wrap:wrap;
   }
+  .prelevement-row label{
+    font-size:12px;
+    color:var(--muted);
+    white-space:nowrap;
+  }
+  .prelevement-row input{
+    width:80px;
+    padding:7px 8px;
+    font-size:14px;
+    border:1.5px solid var(--line);
+    border-radius:6px;
+  }
+  .btn-valider{
+    background:var(--navy);
+    color:#fff;
+    border:none;
+    font-size:12.5px;
+    font-weight:700;
+    padding:8px 12px;
+    border-radius:6px;
+    cursor:pointer;
+  }
+  .btn-valider:active{ background:var(--teal); }
+  .btn-valider:disabled{ opacity:0.5; cursor:not-allowed; }
+  .row-msg{
+    font-size:12px;
+    margin-top:5px;
+    min-height:14px;
+  }
+  .row-msg.ok{ color:#2E7D32; }
+  .row-msg.err{ color:var(--red); }
+
+  mark{ background:#FBE3C4; color:inherit; padding:0 1px; border-radius:2px; }
 
   .empty, .hint, .loading, .error{
     text-align:center;
@@ -213,16 +310,8 @@
     font-size:14px;
   }
   .empty b{ color:var(--navy); }
-  .error{ color:#B23B3B; }
+  .error{ color:var(--red); }
   .error b{ color:#8A2626; }
-  .field input:disabled{
-    background:#EFEFEC;
-    color:var(--muted);
-  }
-  button#raz:disabled{
-    opacity:0.5;
-    cursor:not-allowed;
-  }
   .spinner{
     display:inline-block;
     width:16px; height:16px;
@@ -253,9 +342,9 @@
 <body>
 
 <header class="top">
-  <p class="eyebrow">Poste Sanitaire Mobile</p>
+  <p class="eyebrow"><span class="status-dot" id="status-dot"></span><span id="status-text">Connexion…</span></p>
   <h1>Recherche produits</h1>
-  <p class="sub">Trouvez rapidement dans quel(s) contenant(s) se trouve un produit, à partir de son libellé catalogue ou de son produit référentiel.</p>
+  <p class="sub">Trouvez dans quel(s) contenant(s) se trouve un produit, consultez la quantité disponible et enregistrez un prélèvement. Les mises à jour sont partagées en temps réel entre tous les utilisateurs.</p>
 </header>
 
 <main>
@@ -269,22 +358,59 @@
       <input type="text" id="q-produit" placeholder="ex. injectable, comprimé, perfusion…" autocomplete="off" inputmode="search" disabled>
     </div>
     <div class="row-actions">
-      <button id="raz" type="button" disabled>RAZ</button>
+      <button id="raz" type="button" disabled>Remise à zéro</button>
       <span class="count-badge" id="count-badge"></span>
     </div>
+
+    <details class="admin-zone">
+      <summary>Mise à jour des données (import Liste_PSM.xlsx)</summary>
+      <div class="admin-body">
+        <button class="btn-secondary" id="btn-import" type="button">Charger un fichier Liste_PSM.xlsx</button>
+        <input type="file" id="file-import" accept=".xlsx">
+        <span class="admin-msg" id="import-msg">Remplace les données pour tout le monde (quantités remises au niveau du fichier importé).</span>
+      </div>
+    </details>
   </section>
 
   <section class="results" id="results">
-    <div class="loading"><span class="spinner"></span>Chargement des données (psm.json)…</div>
+    <div class="loading"><span class="spinner"></span>Connexion à la base partagée…</div>
   </section>
 </main>
 
-<footer class="note">Données chargées depuis psm.json &middot; recherche sur texte partiel, insensible aux accents/majuscules.</footer>
+<footer class="note">Données partagées en temps réel (Firebase) &middot; recherche sur texte partiel, insensible aux accents/majuscules &middot; les quantités affichées ne sont jamais additionnées entre elles.</footer>
 
 <script>
-const DATA_URL = './psm.json';
-let DATA = [];
-let INDEXED = [];
+/* ==========================================================================
+   CONFIGURATION FIREBASE - remplacer par les valeurs de VOTRE projet
+   (Console Firebase > Paramètres du projet > Vos applications > config)
+   ========================================================================== */
+const FIREBASE_CONFIG = {
+  apiKey: "REMPLACER_apiKey",
+  authDomain: "REMPLACER.firebaseapp.com",
+  databaseURL: "https://REMPLACER-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "REMPLACER",
+  storageBucket: "REMPLACER.appspot.com",
+  messagingSenderId: "REMPLACER",
+  appId: "REMPLACER"
+};
+
+const DATA_URL = './psm.json'; // utilisé uniquement pour amorcer la base la 1ère fois
+
+let PRODUITS = {};      // { id: {ref, contenant, quantite, libelle, produit_ref} }
+let INDEXED = [];        // tableau à plat pour la recherche
+let dbReady = false;
+let produitsRef = null;
+
+const elLibelle   = document.getElementById('q-libelle');
+const elProduit   = document.getElementById('q-produit');
+const elResults   = document.getElementById('results');
+const elCount     = document.getElementById('count-badge');
+const elRaz       = document.getElementById('raz');
+const elStatusDot = document.getElementById('status-dot');
+const elStatusTxt = document.getElementById('status-text');
+const elBtnImport = document.getElementById('btn-import');
+const elFileImport = document.getElementById('file-import');
+const elImportMsg  = document.getElementById('import-msg');
 
 function normalize(s){
   return (s||'')
@@ -294,12 +420,9 @@ function normalize(s){
     .toLowerCase();
 }
 
-function buildIndex(){
-  INDEXED = DATA.map(r => ({
-    ...r,
-    _libelle_n: normalize(r.libelle),
-    _produit_n: normalize(r.produit_ref)
-  }));
+function escapeHtml(s){
+  return (s||'').toString()
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 function highlight(text, term){
@@ -314,16 +437,21 @@ function highlight(text, term){
   return escapeHtml(before) + '<mark>' + escapeHtml(match) + '</mark>' + escapeHtml(after);
 }
 
-function escapeHtml(s){
-  return (s||'').toString()
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function rebuildIndex(){
+  INDEXED = Object.keys(PRODUITS).map(id=>{
+    const r = PRODUITS[id];
+    return {
+      id: id,
+      ref: r.ref || '',
+      contenant: r.contenant || '',
+      quantite: (typeof r.quantite === 'number') ? r.quantite : parseFloat(r.quantite) || 0,
+      libelle: r.libelle || '',
+      produit_ref: r.produit_ref || '',
+      _libelle_n: normalize(r.libelle),
+      _produit_n: normalize(r.produit_ref)
+    };
+  });
 }
-
-const elLibelle = document.getElementById('q-libelle');
-const elProduit = document.getElementById('q-produit');
-const elResults = document.getElementById('results');
-const elCount = document.getElementById('count-badge');
-const elRaz = document.getElementById('raz');
 
 function runSearch(){
   const qL = elLibelle.value.trim();
@@ -340,10 +468,7 @@ function runSearch(){
   const matches = INDEXED.filter(r=>{
     const okL = nL ? r._libelle_n.includes(nL) : true;
     const okP = nP ? r._produit_n.includes(nP) : true;
-    // Si les deux champs sont remplis, on exige que CHAQUE champ trouve une correspondance
-    // dans sa colonne respective (recherche combinée AND entre les deux champs).
     if(qL && qP) return okL && okP;
-    // Sinon on cherche le texte saisi dans le champ renseigné.
     if(qL) return okL;
     if(qP) return okP;
     return false;
@@ -355,7 +480,6 @@ function runSearch(){
     return;
   }
 
-  // Grouper par contenant
   const byContenant = {};
   matches.forEach(r=>{
     const key = r.contenant || '(sans contenant)';
@@ -376,16 +500,95 @@ function runSearch(){
     html += '<span class="tag-count">' + items.length + ' produit' + (items.length>1?'s':'') + '</span></div>';
     html += '<ul class="items">';
     items.forEach(it=>{
-      html += '<li>';
+      const zeroClass = it.quantite <= 0 ? ' zero' : '';
+      html += '<li data-id="' + it.id + '">';
       html += '<div class="item-libelle">' + highlight(it.libelle, qL) + '</div>';
       html += '<div class="item-ref">' + highlight(it.produit_ref, qP) + '</div>';
-      html += '<span class="item-qte">Qté : ' + escapeHtml(it.quantite !== '' ? it.quantite : '—') + '</span>';
+      html += '<div class="item-qte' + zeroClass + '" data-qte-for="' + it.id + '">Quantité disponible : ' + it.quantite + '</div>';
+      html += '<div class="prelevement-row">';
+      html += '<label for="prel-' + it.id + '">Quantité prélevée</label>';
+      html += '<input type="number" min="0" step="1" id="prel-' + it.id + '" placeholder="0">';
+      html += '<button class="btn-valider" data-action="valider" data-id="' + it.id + '">Valider</button>';
+      html += '</div>';
+      html += '<div class="row-msg" id="msg-' + it.id + '"></div>';
       html += '</li>';
     });
     html += '</ul></div>';
   });
 
   elResults.innerHTML = html;
+}
+
+function setStatus(mode){
+  elStatusDot.className = 'status-dot ' + mode;
+  if(mode === 'online') elStatusTxt.textContent = 'Connecté · synchronisation en temps réel';
+  else if(mode === 'offline') elStatusTxt.textContent = 'Hors ligne — vérifiez la connexion / la configuration Firebase';
+  else elStatusTxt.textContent = 'Connexion…';
+}
+
+function setInputsEnabled(enabled){
+  elLibelle.disabled = !enabled;
+  elProduit.disabled = !enabled;
+  elRaz.disabled = !enabled;
+}
+
+async function seedFromJsonIfEmpty(){
+  const snap = await produitsRef.once('value');
+  if(snap.exists()) return;
+  const resp = await fetch(DATA_URL, { cache: 'no-store' });
+  if(!resp.ok) throw new Error('psm.json introuvable pour amorcer la base (HTTP ' + resp.status + ')');
+  const seed = await resp.json();
+  const obj = {};
+  seed.forEach(r=>{
+    obj[r.id] = {
+      ref: r.ref || '',
+      contenant: r.contenant || '',
+      quantite: r.quantite,
+      libelle: r.libelle || '',
+      produit_ref: r.produit_ref || ''
+    };
+  });
+  await produitsRef.set(obj);
+}
+
+function initFirebase(){
+  try{
+    firebase.initializeApp(FIREBASE_CONFIG);
+  }catch(e){
+    elResults.innerHTML = '<div class="error"><b>Configuration Firebase manquante ou invalide.</b><br>' +
+      'Ouvrez index.html et remplacez les valeurs FIREBASE_CONFIG en haut du fichier par celles de votre propre projet Firebase.<br>' +
+      '<span style="font-size:12px;opacity:.8;">Détail : ' + escapeHtml(e.message) + '</span></div>';
+    setStatus('offline');
+    return;
+  }
+
+  const db = firebase.database();
+  produitsRef = db.ref('produits');
+
+  db.ref('.info/connected').on('value', snap=>{
+    setStatus(snap.val() === true ? 'online' : 'offline');
+  });
+
+  seedFromJsonIfEmpty().catch(err=>{
+    console.error(err);
+  });
+
+  produitsRef.on('value', snap=>{
+    PRODUITS = snap.val() || {};
+    rebuildIndex();
+    dbReady = true;
+    setInputsEnabled(true);
+    if(!elLibelle.value && !elProduit.value){
+      elResults.innerHTML = '<div class="hint">Saisissez un ou plusieurs mots dans l\'un des deux champs pour lancer la recherche.</div>';
+    } else {
+      runSearch();
+    }
+  }, err=>{
+    console.error(err);
+    elResults.innerHTML = '<div class="error"><b>Connexion à la base partagée impossible.</b><br>' +
+      'Vérifiez la configuration Firebase et les règles de sécurité de la Realtime Database.<br>' +
+      '<span style="font-size:12px;opacity:.8;">Détail : ' + escapeHtml(err.message) + '</span></div>';
+  });
 }
 
 elLibelle.addEventListener('input', runSearch);
@@ -397,28 +600,139 @@ elRaz.addEventListener('click', ()=>{
   runSearch();
 });
 
-async function init(){
-  try{
-    const resp = await fetch(DATA_URL, { cache: 'no-store' });
-    if(!resp.ok){
-      throw new Error('HTTP ' + resp.status);
-    }
-    DATA = await resp.json();
-    buildIndex();
+// Délégation d'événement pour les boutons "Valider" (contenu généré dynamiquement)
+elResults.addEventListener('click', (ev)=>{
+  const btn = ev.target.closest('button[data-action="valider"]');
+  if(!btn) return;
+  const id = btn.getAttribute('data-id');
+  const input = document.getElementById('prel-' + id);
+  const msg = document.getElementById('msg-' + id);
+  const val = parseFloat((input.value || '').replace(',', '.'));
 
-    elLibelle.disabled = false;
-    elProduit.disabled = false;
-    elRaz.disabled = false;
-    elResults.innerHTML = '<div class="hint">Saisissez un ou plusieurs mots dans l\'un des deux champs pour lancer la recherche.</div>';
-  }catch(err){
-    elResults.innerHTML = '<div class="error"><b>Impossible de charger psm.json.</b><br>' +
-      'Vérifiez que le fichier psm.json se trouve bien à côté de index.html, dans le même dossier, ' +
-      'et que la page est ouverte via http(s):// (un hébergement web, pas un double-clic local).<br>' +
-      '<span style="font-size:12px;opacity:.8;">Détail technique : ' + escapeHtml(err.message) + '</span></div>';
+  msg.className = 'row-msg';
+  msg.textContent = '';
+
+  if(isNaN(val) || val <= 0){
+    msg.className = 'row-msg err';
+    msg.textContent = 'Saisissez une quantité prélevée valide (> 0).';
+    return;
   }
-}
 
-init();
+  const current = PRODUITS[id] ? (parseFloat(PRODUITS[id].quantite) || 0) : 0;
+  if(val > current){
+    msg.className = 'row-msg err';
+    msg.textContent = 'Quantité prélevée supérieure à la quantité disponible (' + current + ').';
+    return;
+  }
+
+  btn.disabled = true;
+  produitsRef.child(id).child('quantite').transaction(currentVal=>{
+    const base = (typeof currentVal === 'number') ? currentVal : (parseFloat(currentVal) || 0);
+    const next = base - val;
+    return next < 0 ? 0 : next;
+  }, (error, committed)=>{
+    btn.disabled = false;
+    if(error){
+      msg.className = 'row-msg err';
+      msg.textContent = 'Erreur lors de la mise à jour : ' + error.message;
+      return;
+    }
+    if(committed){
+      msg.className = 'row-msg ok';
+      msg.textContent = 'Prélèvement enregistré ✓';
+      input.value = '';
+    }
+  });
+});
+
+// --- Import d'un nouveau fichier Liste_PSM.xlsx (remplace les données pour tous) ---
+elBtnImport.addEventListener('click', ()=> elFileImport.click());
+
+elFileImport.addEventListener('change', (ev)=>{
+  const file = ev.target.files[0];
+  if(!file) return;
+
+  if(!dbReady){
+    elImportMsg.className = 'admin-msg err';
+    elImportMsg.textContent = 'Connexion à la base non prête, réessayez dans un instant.';
+    return;
+  }
+
+  const proceed = window.confirm(
+    'Cela va remplacer les données pour TOUS les utilisateurs connectés ' +
+    '(les quantités seront réinitialisées à celles du fichier importé). Continuer ?'
+  );
+  if(!proceed){ elFileImport.value = ''; return; }
+
+  elImportMsg.className = 'admin-msg';
+  elImportMsg.textContent = 'Lecture du fichier…';
+
+  const reader = new FileReader();
+
+  reader.onerror = ()=>{
+    elImportMsg.className = 'admin-msg err';
+    elImportMsg.textContent = 'Impossible de lire le fichier sélectionné.';
+  };
+
+  reader.onload = async (e)=>{
+    try{
+      const wb = XLSX.read(e.target.result, { type: 'array' });
+      let sheetName = wb.SheetNames.find(n => n.toLowerCase().includes('liste_psm')) || wb.SheetNames[0];
+      const ws = wb.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
+
+      // On s'attend aux colonnes : Référence catalogue, Contenant, Quantité, Libellé catalogue, Produit référentiel
+      const header = rows[0].map(h => (h||'').toString().trim().toLowerCase());
+      const idxRef = header.findIndex(h=>h.includes('référence') || h.includes('reference'));
+      const idxContenant = header.findIndex(h=>h.includes('contenant'));
+      const idxQte = header.findIndex(h=>h.includes('quantité') || h.includes('quantite'));
+      const idxLibelle = header.findIndex(h=>h.includes('libellé') || h.includes('libelle'));
+      const idxProduit = header.findIndex(h=>h.includes('produit'));
+
+      if(idxContenant === -1 || idxQte === -1 || idxLibelle === -1 || idxProduit === -1){
+        throw new Error('Colonnes attendues introuvables (Contenant, Quantité, Libellé catalogue, Produit référentiel).');
+      }
+
+      const newProduits = {};
+      let count = 0;
+      for(let i=1; i<rows.length; i++){
+        const row = rows[i];
+        if(!row || row.length === 0) continue;
+        const contenant = (row[idxContenant] || '').toString().trim();
+        const libelle = (row[idxLibelle] || '').toString().trim();
+        const produit_ref = (row[idxProduit] || '').toString().trim();
+        if(!contenant && !libelle && !produit_ref) continue;
+        const id = 'r' + i;
+        newProduits[id] = {
+          ref: idxRef !== -1 ? (row[idxRef] || '').toString().trim() : '',
+          contenant: contenant,
+          quantite: typeof row[idxQte] === 'number' ? row[idxQte] : (parseFloat(row[idxQte]) || 0),
+          libelle: libelle,
+          produit_ref: produit_ref
+        };
+        count++;
+      }
+
+      if(count === 0){
+        throw new Error('Aucune ligne exploitable trouvée dans le fichier.');
+      }
+
+      elImportMsg.textContent = 'Envoi de ' + count + ' lignes vers la base partagée…';
+      await produitsRef.set(newProduits);
+      elImportMsg.className = 'admin-msg ok';
+      elImportMsg.textContent = 'Import terminé (' + count + ' lignes), données mises à jour pour tout le monde ✓';
+    }catch(err){
+      elImportMsg.className = 'admin-msg err';
+      elImportMsg.textContent = 'Erreur : ' + err.message;
+    }finally{
+      elFileImport.value = '';
+    }
+  };
+
+  reader.readAsArrayBuffer(file);
+});
+
+initFirebase();
 </script>
 </body>
 </html>
