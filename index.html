@@ -213,6 +213,45 @@
   .admin-msg.err{ color:var(--red); }
 
   .results{ margin-top:18px; }
+
+  .list-hint{
+    font-size:12.5px;
+    color:var(--muted);
+    margin-bottom:10px;
+  }
+  /* Étape 1 : produits cliquables */
+  .produit-item{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:10px;
+    width:100%;
+    text-align:left;
+    background:var(--card);
+    border:1px solid var(--line);
+    border-left:5px solid var(--navy);
+    border-radius:8px;
+    padding:12px 14px;
+    margin-bottom:9px;
+    cursor:pointer;
+    font-family:inherit;
+    transition:background .12s, box-shadow .12s;
+  }
+  .produit-item:hover{ background:#FBFBF9; box-shadow:0 3px 10px rgba(14,59,77,0.07); }
+  .produit-item:active{ background:var(--teal-light); }
+  .produit-item-main{ min-width:0; flex:1; }
+  .produit-item-side{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    flex:0 0 auto;
+  }
+  .chevron{
+    font-size:24px;
+    color:var(--teal);
+    line-height:1;
+  }
+
   .produit-card{
     background:var(--card);
     border:1px solid var(--line);
@@ -240,7 +279,20 @@
     color:var(--teal);
     margin-top:4px;
   }
-  .contenants-label{
+
+  .btn-back{
+    background:transparent;
+    border:none;
+    color:var(--teal);
+    font-weight:700;
+    font-size:14px;
+    padding:6px 0 12px;
+    cursor:pointer;
+    font-family:inherit;
+  }
+  .btn-back:hover{ text-decoration:underline; }
+
+  .malles-label{
     margin-top:12px;
     font-size:11px;
     font-weight:700;
@@ -248,14 +300,14 @@
     letter-spacing:0.06em;
     color:var(--teal);
   }
-  .contenant-line{
+  .malle-line{
     display:flex;
     justify-content:space-between;
     align-items:center;
     gap:8px;
     flex-wrap:wrap;
   }
-  .contenant-chip{
+  .malle-chip{
     background:var(--teal-light);
     color:var(--navy);
     font-family:'Arial Narrow', 'Helvetica Neue Condensed', Arial, sans-serif;
@@ -265,29 +317,7 @@
     padding:2px 10px;
     border-radius:6px;
   }
-  .contenant-card{
-    background:var(--card);
-    border:1px solid var(--line);
-    border-left:5px solid var(--teal);
-    border-radius:8px;
-    padding:12px 14px;
-    margin-bottom:10px;
-  }
-  .contenant-head{
-    display:flex;
-    justify-content:space-between;
-    align-items:baseline;
-    gap:8px;
-    flex-wrap:wrap;
-  }
-  .contenant-name{
-    font-family:'Arial Narrow', 'Helvetica Neue Condensed', Arial, sans-serif;
-    font-weight:800;
-    font-size:19px;
-    color:var(--navy);
-    letter-spacing:0.02em;
-  }
-  .tag-count{
+  .malle-count{
     background:var(--teal-light);
     color:var(--teal);
     font-size:11.5px;
@@ -303,8 +333,6 @@
     font-size:14px;
   }
   ul.items li:first-child{ border-top:none; }
-  .item-libelle{ font-weight:600; color:var(--ink); }
-  .item-ref{ color:var(--muted); font-size:13px; margin-top:2px; }
   .item-qte{
     display:inline-block;
     margin-top:6px;
@@ -396,7 +424,7 @@
 <header class="top">
   <p class="eyebrow"><span class="status-dot" id="status-dot"></span><span id="status-text">Connexion…</span></p>
   <h1>Recherche produits</h1>
-  <p class="sub">Trouvez dans quel(s) contenant(s) se trouve un produit, consultez la quantité disponible et enregistrez un prélèvement. Les mises à jour sont partagées en temps réel entre tous les utilisateurs.</p>
+  <p class="sub">Trouvez dans quelle(s) malle(s) se trouve un produit, consultez la quantité disponible et enregistrez un prélèvement. Les mises à jour sont partagées en temps réel entre tous les utilisateurs.</p>
 </header>
 
 <main>
@@ -530,7 +558,7 @@ function rebuildIndex(){
     return {
       id: id,
       ref: r.ref || '',
-      contenant: r.contenant || '',
+      malle: r.contenant || '',
       quantite: (typeof r.quantite === 'number') ? r.quantite : parseFloat(r.quantite) || 0,
       libelle: r.libelle || '',
       produit_ref: r.produit_ref || '',
@@ -540,17 +568,20 @@ function rebuildIndex(){
   });
 }
 
-function runSearch(){
+/* ---- État de navigation : liste des produits <-> détail d'un produit ---- */
+let currentView = 'list';     // 'list' | 'detail'
+let selectedKey = null;        // clé du produit sélectionné
+
+function produitKey(r){
+  return r.ref ? ('ref:' + r.ref) : ('lib:' + r.libelle + '|' + r.produit_ref);
+}
+
+// Calcule les produits correspondant à la recherche, regroupés par produit.
+function computeGroups(){
   const qL = elLibelle.value.trim();
   const qP = elProduit.value.trim();
-  const nL = normalize(qL);
-  const nP = normalize(qP);
 
-  if(!qL && !qP){
-    elResults.innerHTML = '<div class="hint">Saisissez un ou plusieurs mots dans l\'un des deux champs pour lancer la recherche.<br><span style="font-size:12.5px;">Astuce : l\'espace ou <b>*</b> agit comme joker — ex. <i>SALEM 18</i> ou <i>SALEM*18</i>.</span></div>';
-    elCount.innerHTML = '';
-    return;
-  }
+  if(!qL && !qP) return { qL, qP, produits: null };
 
   const matches = INDEXED.filter(r=>{
     const okL = qL ? matchTokens(r._libelle_n, qL) : true;
@@ -561,65 +592,109 @@ function runSearch(){
     return false;
   });
 
-  if(matches.length === 0){
+  const byProduit = {};
+  matches.forEach(r=>{
+    const key = produitKey(r);
+    if(!byProduit[key]){
+      byProduit[key] = {
+        key: key,
+        ref: r.ref,
+        libelle: r.libelle,
+        produit_ref: r.produit_ref,
+        malles: []
+      };
+    }
+    byProduit[key].malles.push(r);
+  });
+
+  const produits = Object.values(byProduit).sort((a,b)=>
+    a.libelle.localeCompare(b.libelle,'fr'));
+  return { qL, qP, produits };
+}
+
+// Point d'entrée unique d'affichage : décide liste ou détail selon l'état.
+function render(){
+  const { qL, qP, produits } = computeGroups();
+
+  if(produits === null){
+    currentView = 'list';
+    selectedKey = null;
+    elResults.innerHTML = '<div class="hint">Saisissez un ou plusieurs mots dans l\'un des deux champs pour lancer la recherche.<br><span style="font-size:12.5px;">Astuce : l\'espace ou <b>*</b> agit comme joker — ex. <i>SALEM 18</i> ou <i>SALEM*18</i>.</span></div>';
+    elCount.innerHTML = '';
+    return;
+  }
+
+  if(produits.length === 0){
+    currentView = 'list';
+    selectedKey = null;
     elResults.innerHTML = '<div class="empty">Aucun produit trouvé.<br><b>Vérifiez l\'orthographe</b> ou essayez un terme plus court.<br>' +
       '<span style="font-size:12.5px;">Astuce : utilisez l\'espace ou <b>*</b> comme joker, ex. <i>SALEM 18</i> ou <i>SALEM*18</i>.</span></div>';
     elCount.innerHTML = '';
     return;
   }
 
-  // Regroupement PAR PRODUIT : on identifie le produit, puis on liste
-  // les contenants qui le contiennent (avec leur quantité respective).
-  const byProduit = {};
-  matches.forEach(r=>{
-    // clé produit : référence catalogue si dispo, sinon libellé + produit référentiel
-    const key = r.ref ? ('ref:' + r.ref) : ('lib:' + r.libelle + '|' + r.produit_ref);
-    if(!byProduit[key]){
-      byProduit[key] = {
-        ref: r.ref,
-        libelle: r.libelle,
-        produit_ref: r.produit_ref,
-        contenants: []
-      };
-    }
-    byProduit[key].contenants.push(r);
-  });
+  // Si on est en vue détail mais que le produit sélectionné n'existe plus
+  // dans les résultats courants, on retombe sur la liste.
+  if(currentView === 'detail'){
+    const sel = produits.find(p => p.key === selectedKey);
+    if(sel){ renderDetail(sel, qL, qP); return; }
+    currentView = 'list';
+    selectedKey = null;
+  }
 
-  const produits = Object.values(byProduit).sort((a,b)=>
-    a.libelle.localeCompare(b.libelle,'fr'));
+  renderList(produits, qL, qP);
+}
 
-  const nbContenants = matches.length;
-  elCount.innerHTML = '<b>' + produits.length + '</b> produit' + (produits.length>1?'s':'') +
-    ' &middot; <b>' + nbContenants + '</b> emplacement' + (nbContenants>1?'s':'') + ' (contenant)';
+// ÉTAPE 1 : liste des produits (cliquables).
+function renderList(produits, qL, qP){
+  elCount.innerHTML = '<b>' + produits.length + '</b> produit' + (produits.length>1?'s':'') + ' trouvé' + (produits.length>1?'s':'');
 
-  let html = '';
+  let html = '<div class="list-hint">Sélectionnez un produit pour voir les malles et les quantités.</div>';
   produits.forEach(p=>{
-    // trier les contenants par nom
-    const conts = p.contenants.slice().sort((a,b)=>a.contenant.localeCompare(b.contenant,'fr'));
-    html += '<div class="produit-card">';
+    const nb = p.malles.length;
+    html += '<button class="produit-item" data-action="select" data-key="' + escapeHtml(p.key) + '">';
+    html += '<div class="produit-item-main">';
     html += '<div class="produit-libelle">' + highlight(p.libelle, qL) + '</div>';
     html += '<div class="produit-ref">' + highlight(p.produit_ref, qP) + '</div>';
     if(p.ref){
       html += '<div class="produit-refcat">Réf. catalogue : ' + escapeHtml(p.ref) + '</div>';
     }
-    html += '<div class="contenants-label">Contenant' + (conts.length>1?'s':'') + ' (' + conts.length + ')</div>';
-    html += '<ul class="items">';
-    conts.forEach(it=>{
-      const zeroClass = it.quantite <= 0 ? ' zero' : '';
-      html += '<li data-id="' + it.id + '">';
-      html += '<div class="contenant-line"><span class="contenant-chip">' + escapeHtml(it.contenant) + '</span>';
-      html += '<span class="item-qte' + zeroClass + '" data-qte-for="' + it.id + '">Qté disponible : ' + it.quantite + '</span></div>';
-      html += '<div class="prelevement-row">';
-      html += '<label for="prel-' + it.id + '">Quantité prélevée</label>';
-      html += '<input type="number" min="0" step="1" id="prel-' + it.id + '" placeholder="0">';
-      html += '<button class="btn-valider" data-action="valider" data-id="' + it.id + '">Valider</button>';
-      html += '</div>';
-      html += '<div class="row-msg" id="msg-' + it.id + '"></div>';
-      html += '</li>';
-    });
-    html += '</ul></div>';
+    html += '</div>';
+    html += '<div class="produit-item-side"><span class="malle-count">' + nb + ' malle' + (nb>1?'s':'') + '</span><span class="chevron">›</span></div>';
+    html += '</button>';
   });
+  elResults.innerHTML = html;
+}
 
+// ÉTAPE 2 : détail d'un produit -> liste de ses malles + prélèvement.
+function renderDetail(p, qL, qP){
+  const malles = p.malles.slice().sort((a,b)=>a.malle.localeCompare(b.malle,'fr'));
+
+  elCount.innerHTML = '';
+
+  let html = '<button class="btn-back" data-action="back">‹ Retour à la liste des produits</button>';
+  html += '<div class="produit-card">';
+  html += '<div class="produit-libelle">' + highlight(p.libelle, qL) + '</div>';
+  html += '<div class="produit-ref">' + highlight(p.produit_ref, qP) + '</div>';
+  if(p.ref){
+    html += '<div class="produit-refcat">Réf. catalogue : ' + escapeHtml(p.ref) + '</div>';
+  }
+  html += '<div class="malles-label">Malle' + (malles.length>1?'s':'') + ' où se trouve ce produit (' + malles.length + ')</div>';
+  html += '<ul class="items">';
+  malles.forEach(it=>{
+    const zeroClass = it.quantite <= 0 ? ' zero' : '';
+    html += '<li data-id="' + it.id + '">';
+    html += '<div class="malle-line"><span class="malle-chip">' + escapeHtml(it.malle) + '</span>';
+    html += '<span class="item-qte' + zeroClass + '" data-qte-for="' + it.id + '">Qté disponible : ' + it.quantite + '</span></div>';
+    html += '<div class="prelevement-row">';
+    html += '<label for="prel-' + it.id + '">Quantité prélevée</label>';
+    html += '<input type="number" min="0" step="1" id="prel-' + it.id + '" placeholder="0">';
+    html += '<button class="btn-valider" data-action="valider" data-id="' + it.id + '">Valider</button>';
+    html += '</div>';
+    html += '<div class="row-msg" id="msg-' + it.id + '"></div>';
+    html += '</li>';
+  });
+  html += '</ul></div>';
   elResults.innerHTML = html;
 }
 
@@ -682,11 +757,7 @@ function initFirebase(){
     rebuildIndex();
     dbReady = true;
     setInputsEnabled(true);
-    if(!elLibelle.value && !elProduit.value){
-      elResults.innerHTML = '<div class="hint">Saisissez un ou plusieurs mots dans l\'un des deux champs pour lancer la recherche.<br><span style="font-size:12.5px;">Astuce : l\'espace ou <b>*</b> agit comme joker — ex. <i>SALEM 18</i> ou <i>SALEM*18</i>.</span></div>';
-    } else {
-      runSearch();
-    }
+    render();
   }, err=>{
     console.error(err);
     elResults.innerHTML = '<div class="error"><b>Connexion à la base partagée impossible.</b><br>' +
@@ -695,17 +766,42 @@ function initFirebase(){
   });
 }
 
-elLibelle.addEventListener('input', runSearch);
-elProduit.addEventListener('input', runSearch);
+function onSearchInput(){
+  // Toute nouvelle saisie ramène à la liste des produits.
+  currentView = 'list';
+  selectedKey = null;
+  render();
+}
+elLibelle.addEventListener('input', onSearchInput);
+elProduit.addEventListener('input', onSearchInput);
 elRaz.addEventListener('click', ()=>{
   elLibelle.value = '';
   elProduit.value = '';
+  currentView = 'list';
+  selectedKey = null;
   elLibelle.focus();
-  runSearch();
+  render();
 });
 
-// Délégation d'événement pour les boutons "Valider" (contenu généré dynamiquement)
+// Délégation d'événements : sélection d'un produit, retour, et validation prélèvement.
 elResults.addEventListener('click', (ev)=>{
+  const selectBtn = ev.target.closest('button[data-action="select"]');
+  if(selectBtn){
+    selectedKey = selectBtn.getAttribute('data-key');
+    currentView = 'detail';
+    render();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    return;
+  }
+
+  const backBtn = ev.target.closest('button[data-action="back"]');
+  if(backBtn){
+    currentView = 'list';
+    selectedKey = null;
+    render();
+    return;
+  }
+
   const btn = ev.target.closest('button[data-action="valider"]');
   if(!btn) return;
   const id = btn.getAttribute('data-id');
@@ -735,16 +831,20 @@ elResults.addEventListener('click', (ev)=>{
     const next = base - val;
     return next < 0 ? 0 : next;
   }, (error, committed)=>{
-    btn.disabled = false;
+    // Le DOM a pu être reconstruit par la synchro temps réel : on re-cible par id.
+    const freshMsg = document.getElementById('msg-' + id) || msg;
+    const freshInput = document.getElementById('prel-' + id);
+    const freshBtn = document.querySelector('button[data-action="valider"][data-id="' + id + '"]');
+    if(freshBtn) freshBtn.disabled = false;
     if(error){
-      msg.className = 'row-msg err';
-      msg.textContent = 'Erreur lors de la mise à jour : ' + error.message;
+      freshMsg.className = 'row-msg err';
+      freshMsg.textContent = 'Erreur lors de la mise à jour : ' + error.message;
       return;
     }
     if(committed){
-      msg.className = 'row-msg ok';
-      msg.textContent = 'Prélèvement enregistré ✓';
-      input.value = '';
+      freshMsg.className = 'row-msg ok';
+      freshMsg.textContent = 'Prélèvement enregistré ✓';
+      if(freshInput) freshInput.value = '';
     }
   });
 });
@@ -788,13 +888,13 @@ elFileImport.addEventListener('change', (ev)=>{
       // On s'attend aux colonnes : Référence catalogue, Contenant, Quantité, Libellé catalogue, Produit référentiel
       const header = rows[0].map(h => (h||'').toString().trim().toLowerCase());
       const idxRef = header.findIndex(h=>h.includes('référence') || h.includes('reference'));
-      const idxContenant = header.findIndex(h=>h.includes('contenant'));
+      const idxContenant = header.findIndex(h=>h.includes('malle') || h.includes('contenant'));
       const idxQte = header.findIndex(h=>h.includes('quantité') || h.includes('quantite'));
       const idxLibelle = header.findIndex(h=>h.includes('libellé') || h.includes('libelle'));
       const idxProduit = header.findIndex(h=>h.includes('produit'));
 
       if(idxContenant === -1 || idxQte === -1 || idxLibelle === -1 || idxProduit === -1){
-        throw new Error('Colonnes attendues introuvables (Contenant, Quantité, Libellé catalogue, Produit référentiel).');
+        throw new Error('Colonnes attendues introuvables (Malle ou Contenant, Quantité, Libellé catalogue, Produit référentiel).');
       }
 
       const newProduits = {};
